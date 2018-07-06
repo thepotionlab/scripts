@@ -1,21 +1,40 @@
 #!/usr/bin/env bash
 
-build_only=false
-while getopts "bh" option
-  do case "$option" in
-    b)
-      build_only=true
-      ;;
-    h)
-      echo "Usage: setup_xcode [-hb]"
-      exit 0
-      ;;
-    \?)
-      echo "Invalid option: -$OPTARG" >&2
-      exit 1
-      ;;
-  esac
-done
+# TODO: Read the `.setup_xcode` file and add the contents as flags, one
+# flag per line
+# This can probably be done by editing the arguments array
+# Test like this `setup_xcode -h` should exit
+
+args=("$@")
+if [[ -f ".setup_xcode" ]]; then
+  while read -r line || [[ -n "$line" ]]; do
+    args+=("$line")
+  done < ".setup_xcode"
+fi
+
+set_args() {
+  build_only=false
+  while getopts "bh" option
+    do case "$option" in
+      b)
+        build_only=true
+        ;;
+      h)
+        echo "Usage: setup_xcode [-hb]"
+        echo
+        echo "Create a file called .setup_xcode to automatically set flags."
+        echo "Put one flag per line."
+        exit 0
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
+set_args ${args[@]}
 
 # Test for a file with `.xcodeproj` exit and do nothign if it doesn't exist
 shopt -s nullglob
@@ -149,10 +168,13 @@ test:
 # `.swiftlint.yml`
 setup_swiftlint() {
   swiftlint="disabled_rules:
-  - function_parameter_count
-  - xctfail_message
-  - identifier_name
+  - closure_parameter_position
   - file_length
+  - function_body_length
+  - function_parameter_count
+  - identifier_name
+  - todo
+  - xctfail_message
 excluded:
   - Carthage"
   echo "$swiftlint" > .swiftlint.yml
