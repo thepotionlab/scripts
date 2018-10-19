@@ -9,18 +9,36 @@ args=("$@")
 if [[ -f ".setup_xcode" ]]; then
   while read -r line || [[ -n "$line" ]]; do
     args+=("$line")
-  done < ".setup_xcode"
+  done <".setup_xcode"
+fi
+
+build_only=false
+setup_deploy=false
+has_cartfile=false
+if [[ -f "Cartfile" || -f "Cartfile.private" ]]; then
+  has_cartfile=true
 fi
 
 set_args() {
-  build_only=false
-  while getopts "bh" option
-    do case "$option" in
+  while getopts "dbi:t:h" option; do
+    case "$option" in
       b)
         build_only=true
         ;;
+      d)
+        setup_deploy=true
+        ;;
+      i)
+        irc_notifications=$OPTARG
+        ;;
+      t)
+        targets+=("$OPTARG")
+        ;;
       h)
-        echo "Usage: setup_xcode [-hb]"
+        echo "Usage: setup_xcode [-hbd]"
+        echo
+        echo "-b: Build only"
+        echo "-d: Also setup deployment"
         echo
         echo "Create a file called .setup_xcode to automatically set flags."
         echo "Put one flag per line."
@@ -34,9 +52,9 @@ set_args() {
   done
 }
 
-set_args ${args[@]}
+set_args "${args[@]}"
 
-# Test for a file with `.xcodeproj` exit and do nothign if it doesn't exist
+# Test for a file with `.xcodeproj` exit and do nothing if it doesn't exist
 shopt -s nullglob
 for project_file in *.xcodeproj; do
   project_name=$(basename "$project_file")
@@ -45,13 +63,23 @@ done
 shopt -u nullglob
 
 if [[ -z "$project_name" ]]; then
-  echo "No .xcodeproj file found" 
+  echo "No .xcodeproj file found"
   exit 1
+fi
+
+if [[ -z "$targets" ]]; then
+  targets=" $project_name"
+else
+  targets_result=""
+  for target in "${targets[@]}"; do
+    targets_result+=$target
+  done
+  targets=$targets_result
 fi
 
 # `.gitignore`
 setup_gitignore() {
-  gitignore="# Xcode
+  local gitignore="# Xcode
 #
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
 
@@ -113,28 +141,60 @@ fastlane/test_output
 # After new code Injection tools there's a generated folder /iOSInjectionProject
 # https://github.com/johnno1962/injectionforxcode
 
-iOSInjectionProject/"
-  echo "$gitignore" > .gitignore
+iOSInjectionProject/
+"
+  echo "$gitignore" >.gitignore
 }
 
 setup_travis() {
-  travis="language: swift
-osx_image: xcode9.3
-script: make ci"
-  echo "$travis" > .travis.yml
+  local travis="language: swift
+osx_image: xcode10
+script: make ci
+"
+  if $has_cartfile || $setup_deploy; then
+    travis+="before_install:
+  - brew update
+  - brew outdated carthage || brew upgrade carthage
+"
+  fi
+  travis+="before_script:
+  - make lint
+"
+  if $has_cartfile; then
+    travis+="  - carthage bootstrap
+"
+  fi
+  if $setup_deploy; then
+    travis+="before_deploy:
+  - carthage build --no-skip-current
+  - carthage archive${targets}
+"
+  fi
+  if [[ -n "$irc_notifications" ]]; then
+    travis+="notifications:
+  irc: $irc_notifications
+"
+  fi
+  if [[ -f ".travis.yml" ]]; then
+    # Some sections need to be setup manually, usually because they include
+    # encrypted keys, so we overwrite the beginning of the file and preserve
+    # the end, so a manual section can be maintained at the end.
+    # The `expr` removes whitespace.
+    local travis_lines="$(expr $(wc -l <<<"$travis") - 0)"
+    local travis_deploy=$(tail -n +$travis_lines .travis.yml)
+    travis+=$travis_deploy
+  fi
+  echo "$travis" >.travis.yml
 }
 
 setup_makefile() {
-  ci_steps="lint"
-  if [[ -f "Cartfile" || -f "Cartfile.private" ]]; then
-    ci_steps="$ci_steps bootstrap"
-  fi
+  local ci_steps
   if $build_only; then
-    ci_steps="$ci_steps build"
+    ci_steps="build"
   else
-    ci_steps="$ci_steps test"
+    ci_steps="test"
   fi
-  makefile="SCHEME = $project_name
+  local makefile="SCHEME = $project_name
 
 .PHONY: build test lint autocorrect swiftformat swiftlint_autocorrect bootstrap
 
@@ -152,7 +212,9 @@ swiftlint_autocorrect:
 	swiftlint autocorrect
 
 build:
-	xcodebuild build
+	xcodebuild build \\
+		-alltargets \\
+		-configuration Debug
 
 bootstrap:
 	carthage bootstrap
@@ -161,13 +223,14 @@ test:
 	xcodebuild test \\
 		-alltargets \\
 		-configuration Debug \\
-		-scheme \$(SCHEME)"
-  echo "$makefile" > Makefile
+		-scheme \$(SCHEME)
+"
+  echo "$makefile" >Makefile
 }
 
 # `.swiftlint.yml`
 setup_swiftlint() {
-  swiftlint="disabled_rules:
+  local swiftlint="disabled_rules:
   - closure_parameter_position
   - file_length
   - function_body_length
@@ -177,8 +240,9 @@ setup_swiftlint() {
   - type_name
   - xctfail_message
 excluded:
-  - Carthage"
-  echo "$swiftlint" > .swiftlint.yml
+  - Carthage
+"
+  echo "$swiftlint" >.swiftlint.yml
 }
 
 setup_gitignore
