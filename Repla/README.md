@@ -1,4 +1,6 @@
-# Scripts
+# Repla Scripts
+
+Scripts for running working with the main Repla app and dependency frameworks. 
 
 * `setup_xcode.sh`: Use this script to configure a new Xcode project, it sets up the following:
 	* `.gitignore`: Ignore common files for Xcode projects (source [gitignore/Swift.gitignore](https://github.com/github/gitignore/blob/master/Swift.gitignore))
