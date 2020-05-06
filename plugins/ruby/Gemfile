@@ -1,6 +1,7 @@
 source 'https://rubygems.org'
 gem 'ripper-tags'
 gem 'rubocop'
+gem 'debase'
 gem 'ruby-debug-ide'
 gem 'pry-byebug'
 gem 'solargraph'
